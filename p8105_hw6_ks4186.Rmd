@@ -1,0 +1,110 @@
+---
+title: "P8105 HW6"
+author: "Kehan Su"
+date: "2024-12-02"
+output: github_document
+---
+
+```{r setup, message = FALSE, warning = FALSE}
+library(tidyverse)
+library(p8105.datasets)
+library(modelr)
+library(mgcv)
+library(SemiPar)
+set.seed(1)
+```
+
+## Problem 1
+
+```{r}
+#weather_df = 
+#  rnoaa::meteo_pull_monitors(
+#    c("USW00094728"),
+#    var = c("PRCP", "TMIN", "TMAX"), 
+#    date_min = "2017-01-01",
+#    date_max = "2017-12-31") %>%
+#  mutate(
+#    name = recode(id, USW00094728 = "CentralPark_NY"),
+#    tmin = tmin / 10,
+#    tmax = tmax / 10) %>%
+#  select(name, id, everything())
+```
+
+
+## Problem 2
+
+```{r}
+url = "https://raw.githubusercontent.com/washingtonpost/data-homicides/master/homicide-data.csv"
+homicide_data = read_csv(url)
+```
+```{r warning = FALSE}
+homicide_df = 
+  homicide_data |>
+    mutate(
+    city_state = paste(city, state, sep = ","),
+    solved = ifelse(disposition == "Closed by arrest", 1, 0)
+    ) |>
+  filter(!(city_state %in% c("Dallas,TX","Phoenix,AZ","Kansas City,MO","Tulsa,AL"))) |>
+  filter(victim_race %in% c("White","Black")) |>
+  mutate(victim_age = as.numeric(victim_age))
+```
+
+```{r}
+# For Baltimore
+baltimore_test = 
+  homicide_df |>
+  filter(city_state == "Baltimore,MD") |>
+  glm(solved ~ victim_age + victim_sex + victim_race, family = "binomial", 
+      data = _) |>
+  broom::tidy(conf.int = TRUE, conf.level = 0.95) |>
+  mutate(
+    OR = exp(estimate),
+    lower = exp(conf.low),
+    upper = exp(conf.high)
+  ) |>
+  filter(term == "victim_sexMale") |>
+  select(OR, lower, upper)
+baltimore_test |>
+  knitr::kable(digits = 3)
+```
+
+```{r, warning = FALSE}
+# For each city
+city_tests = 
+  homicide_df |>
+  group_by(city_state) |>
+  nest() |>
+  mutate(
+    fit = map(
+      data, ~ glm(solved ~ victim_age + victim_race + victim_sex, data = ., family = binomial())
+      ),
+    results = map(fit, ~ broom::tidy(.x, conf.int = TRUE, conf.level = 0.95))
+  ) |>
+  unnest(results) |>
+  mutate(
+    OR = exp(estimate),
+    lower = exp(conf.low),
+    upper = exp(conf.high)
+  ) |>
+  filter(term == "victim_sexMale") |>
+  select(city_state, OR, lower, upper)
+    
+city_tests |>
+  knitr::kable(digits = 3)
+```
+
+```{r, fig.width=8, fig.height=8}
+# Plot showing the estimated ORs and CIs
+city_tests |>
+  ggplot(aes(x = reorder(city_state,desc(OR)), y = OR)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.25) +
+  labs(
+    x = "City",
+    y = "Odds Ratio"
+  ) +
+  coord_flip() +
+  theme_minimal()
+```
+
+
